@@ -1,6 +1,7 @@
 import * as cdk from 'aws-cdk-lib/core';
 import { Construct } from 'constructs';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
+import * as s3 from 'aws-cdk-lib/aws-s3';
 // import * as sqs from 'aws-cdk-lib/aws-sqs';
 
 export class RetoTiendaBackendStack extends cdk.Stack {
@@ -59,5 +60,39 @@ export class RetoTiendaBackendStack extends cdk.Stack {
       ec2.Port.tcp(5432),
       'PostgreSQL solo desde la EC2 de procesamiento',
     );
+
+    // ---------------------------------------------------------------------
+    // Bucket S3 para imagenes de productos
+    // ---------------------------------------------------------------------
+    // Object Storage para archivos no estructurados (imagenes JPG, PNG, etc).
+    // Elegido sobre EBS (block) porque S3 escala a petabytes sin gestion
+    // manual, sirve objetos por HTTP y su costo por GB es mucho menor.
+    const imagesBucket = new s3.Bucket(this, 'ProductImagesBucket', {
+      // Bloquea cualquier acceso publico. Las imagenes se serviran por
+      // URL firmada o CloudFront, no por acceso directo.
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+
+      // Versionado habilitado: requisito para Cross-Region Replication
+      // (Boss Fight) y proteccion contra borrados accidentales.
+      versioned: true,
+
+      // Lifecycle: mueve a S3-IA a los 90 dias para reducir costo.
+      // Requisito explicito del reto.
+      lifecycleRules: [
+        {
+          id: 'Mover-a-IA-a-los-90-dias',
+          transitions: [
+            {
+              storageClass: s3.StorageClass.INFREQUENT_ACCESS,
+              transitionAfter: cdk.Duration.days(90),
+            },
+          ],
+        },
+      ],
+
+      // Cleanup limpio con cdk destroy.
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      autoDeleteObjects: true,
+    });
   }
 }
