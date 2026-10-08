@@ -7,9 +7,23 @@ import * as rds from 'aws-cdk-lib/aws-rds';
 import * as iam from 'aws-cdk-lib/aws-iam';
 // import * as sqs from 'aws-cdk-lib/aws-sqs';
 
+/**
+ * Props del stack principal.
+ *
+ * Recibe el bucket de replicacion (creado en us-west-2) para configurar
+ * la Cross-Region Replication del bucket de imagenes.
+ */
+export interface RetoTiendaBackendStackProps extends cdk.StackProps {
+  /** Bucket en us-west-2 que recibe las replicas de las imagenes. */
+  readonly replicaBucket: s3.Bucket;
+}
+
 export class RetoTiendaBackendStack extends cdk.Stack {
-  constructor(scope: Construct, id: string, props?: cdk.StackProps) {
+  constructor(scope: Construct, id: string, props: RetoTiendaBackendStackProps) {
     super(scope, id, props);
+
+     // Bucket de replicacion proveniente del stack de us-west-2.
+    const { replicaBucket } = props;
 
     // ---------------------------------------------------------------------
     // VPC
@@ -64,6 +78,19 @@ export class RetoTiendaBackendStack extends cdk.Stack {
       'PostgreSQL solo desde la EC2 de procesamiento',
     );
 
+
+    // ---------------------------------------------------------------------
+    // IAM Role para la Cross-Region Replication
+    // ---------------------------------------------------------------------
+    // Rol de servicio asumido por S3 para copiar objetos al bucket remoto.
+    // CDK autoconfigura las policies minimas cuando se usa junto con
+    // replicationRules: GetObject en origen, PutObject en destino.
+    const replicationRole = new iam.Role(this, 'ReplicationRole', {
+      assumedBy: new iam.ServicePrincipal('s3.amazonaws.com'),
+      description: 'Rol de S3 para replicar imagenes a us-west-2',
+    });
+
+
     // ---------------------------------------------------------------------
     // Bucket S3 para imagenes de productos
     // ---------------------------------------------------------------------
@@ -96,6 +123,17 @@ export class RetoTiendaBackendStack extends cdk.Stack {
       // Cleanup limpio con cdk destroy.
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       autoDeleteObjects: true,
+
+      // Boss Fight: Cross-Region Replication a us-west-2.
+      // S3 copia cada objeto nuevo automaticamente al bucket remoto.
+      // Requiere versioning en ambos buckets (ya configurado).
+      replicationRole: replicationRole,
+      replicationRules: [
+        {
+          destination: replicaBucket,
+          priority: 1,
+        },
+      ],
     });
 
         // ---------------------------------------------------------------------
