@@ -4,6 +4,7 @@ import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as rds from 'aws-cdk-lib/aws-rds';
+import * as iam from 'aws-cdk-lib/aws-iam';
 // import * as sqs from 'aws-cdk-lib/aws-sqs';
 
 export class RetoTiendaBackendStack extends cdk.Stack {
@@ -178,6 +179,91 @@ export class RetoTiendaBackendStack extends cdk.Stack {
 
       // Cleanup limpio.
       removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
+        // ---------------------------------------------------------------------
+    // IAM Role para la instancia EC2
+    // ---------------------------------------------------------------------
+    // Solo SSM: permite administrar la instancia por Session Manager
+    // sin abrir puerto 22. Nada mas.
+    const ec2Role = new iam.Role(this, 'Ec2Role', {
+      assumedBy: new iam.ServicePrincipal('ec2.amazonaws.com'),
+      description: 'Rol de la EC2 de procesamiento con acceso SSM',
+      managedPolicies: [
+        iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonSSMManagedInstanceCore'),
+      ],
+    });
+
+    // ---------------------------------------------------------------------
+    // Instancia EC2 para procesamiento de ordenes
+    // ---------------------------------------------------------------------
+    // Almacenamiento temporal: block storage (EBS) sobre instancia.
+    // Elegido sobre S3 porque el procesamiento necesita un filesystem
+    // POSIX de baja latencia, no un API HTTP.
+    const webInstance = new ec2.Instance(this, 'ProcessingInstance', {
+      vpc,
+      vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC },
+      instanceType: ec2.InstanceType.of(
+        ec2.InstanceClass.T3,
+        ec2.InstanceSize.MICRO,
+      ),
+      machineImage: ec2.MachineImage.latestAmazonLinux2023(),
+      securityGroup: ec2Sg,
+      role: ec2Role,
+
+      // Volumenes EBS adjuntos a la instancia.
+      // /dev/xvda: root (8 GB).
+      // /dev/xvdf: datos de procesamiento temporal (20 GB gp3).
+      // deleteOnTermination evita volumenes huerfanos con cdk destroy.
+      blockDevices: [
+        {
+          deviceName: '/dev/xvda',
+          volume: ec2.BlockDeviceVolume.ebs(8, {
+            volumeType: ec2.EbsDeviceVolumeType.GP3,
+            deleteOnTermination: true,
+          }),
+        },
+        {
+          deviceName: '/dev/xvdf',
+          volume: ec2.BlockDeviceVolume.ebs(20, {
+            volumeType: ec2.EbsDeviceVolumeType.GP3,
+            deleteOnTermination: true,
+          }),
+        },
+      ],
+    });
+
+    // Instala el cliente psql para poder conectarse a RDS en la fase de pruebas.
+    webInstance.userData.addCommands(
+      'dnf install -y postgresql16',
+    );
+
+    // ---------------------------------------------------------------------
+    // Outputs
+    // ---------------------------------------------------------------------
+    new cdk.CfnOutput(this, 'ProcessingInstanceId', {
+      value: webInstance.instanceId,
+      description: 'Instance ID de la EC2 de procesamiento',
+    });
+
+    new cdk.CfnOutput(this, 'RdsEndpoint', {
+      value: database.dbInstanceEndpointAddress,
+      description: 'Endpoint de RDS PostgreSQL',
+    });
+
+    new cdk.CfnOutput(this, 'RdsSecretArn', {
+      value: database.secret!.secretArn,
+      description: 'ARN del secret de RDS en Secrets Manager',
+    });
+
+    new cdk.CfnOutput(this, 'OrdersTableName', {
+      value: ordersTable.tableName,
+      description: 'Nombre de la tabla DynamoDB de ordenes',
+    });
+
+    new cdk.CfnOutput(this, 'ImagesBucketName', {
+      value: imagesBucket.bucketName,
+      description: 'Nombre del bucket S3 de imagenes',
     });
   }
 }
