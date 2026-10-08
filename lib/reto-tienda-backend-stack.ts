@@ -120,6 +120,10 @@ export class RetoTiendaBackendStack extends cdk.Stack {
       },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
+      // Boss Fight: Streams para procesar eventos de ordenes en tiempo real.
+      // NEW_AND_OLD_IMAGES guarda estado anterior y nuevo de cada item.
+      // Es un cambio in-place: no recrea la tabla, no pierde datos.
+      stream: dynamodb.StreamViewType.NEW_AND_OLD_IMAGES,
     });
 
         // ---------------------------------------------------------------------
@@ -179,6 +183,39 @@ export class RetoTiendaBackendStack extends cdk.Stack {
 
       // Cleanup limpio.
       removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
+     // ---------------------------------------------------------------------
+    // Boss Fight: Read Replica de RDS
+    // ---------------------------------------------------------------------
+    // Replica de solo lectura, sincronizada automaticamente desde la primaria.
+    // Permite distribuir las lecturas del catalogo (queries de productos)
+    // mientras la primaria queda disponible para escrituras.
+    //
+    // Es un recurso nuevo: no modifica ni recrea la primaria.
+    const readReplica = new rds.DatabaseInstanceReadReplica(
+      this,
+      'CatalogReadReplica',
+      {
+        sourceDatabaseInstance: database,
+        instanceType: ec2.InstanceType.of(
+          ec2.InstanceClass.T3,
+          ec2.InstanceSize.MICRO,
+        ),
+        vpc,
+        vpcSubnets: {
+          subnetType: ec2.SubnetType.PRIVATE_ISOLATED,
+        },
+        publiclyAccessible: false,
+        securityGroups: [rdsSg],
+        removalPolicy: cdk.RemovalPolicy.DESTROY,
+      },
+    );
+
+    // Output del endpoint de la réplica para las pruebas.
+    new cdk.CfnOutput(this, 'RdsReplicaEndpoint', {
+      value: readReplica.dbInstanceEndpointAddress,
+      description: 'Endpoint de la Read Replica de RDS',
     });
 
    // ---------------------------------------------------------------------
