@@ -181,18 +181,29 @@ export class RetoTiendaBackendStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
 
-        // ---------------------------------------------------------------------
+   // ---------------------------------------------------------------------
     // IAM Role para la instancia EC2
     // ---------------------------------------------------------------------
-    // Solo SSM: permite administrar la instancia por Session Manager
-    // sin abrir puerto 22. Nada mas.
+    // Permisos:
+    // 1. SSM: administrar la instancia por Session Manager sin abrir puerto 22.
+    // 2. Secrets Manager: leer UNICAMENTE el secret de RDS.
+    //    No se da acceso a otros secrets (minimo privilegio).
     const ec2Role = new iam.Role(this, 'Ec2Role', {
       assumedBy: new iam.ServicePrincipal('ec2.amazonaws.com'),
-      description: 'Rol de la EC2 de procesamiento con acceso SSM',
+      description: 'Rol de la EC2 de procesamiento con acceso SSM y al secret de RDS',
       managedPolicies: [
         iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonSSMManagedInstanceCore'),
       ],
     });
+
+    // Permiso para leer solo el secret de RDS (no todos los secrets).
+    ec2Role.addToPolicy(
+      new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        actions: ['secretsmanager:GetSecretValue'],
+        resources: [database.secret!.secretArn],
+      }),
+    );
 
     // ---------------------------------------------------------------------
     // Instancia EC2 para procesamiento de ordenes
