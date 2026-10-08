@@ -162,7 +162,7 @@ export class RetoTiendaBackendStack extends cdk.Stack {
       credentials: rds.Credentials.fromGeneratedSecret('postgres'),
 
       // Nombre de la base de datos inicial.
-      databaseName: 'catalog',
+      databaseName: 'tienda',
 
       // Storage: gp3 de 20 GB (minimo para gp3).
       allocatedStorage: 20,
