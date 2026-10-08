@@ -78,18 +78,15 @@ export class RetoTiendaBackendStack extends cdk.Stack {
       'PostgreSQL solo desde la EC2 de procesamiento',
     );
 
-
-    // ---------------------------------------------------------------------
+      // ---------------------------------------------------------------------
     // IAM Role para la Cross-Region Replication
     // ---------------------------------------------------------------------
     // Rol de servicio asumido por S3 para copiar objetos al bucket remoto.
-    // CDK autoconfigura las policies minimas cuando se usa junto con
-    // replicationRules: GetObject en origen, PutObject en destino.
+    // Las policies se agregan DESPUES del bucket porque necesitan su ARN.
     const replicationRole = new iam.Role(this, 'ReplicationRole', {
       assumedBy: new iam.ServicePrincipal('s3.amazonaws.com'),
       description: 'Rol de S3 para replicar imagenes a us-west-2',
     });
-
 
     // ---------------------------------------------------------------------
     // Bucket S3 para imagenes de productos
@@ -135,6 +132,34 @@ export class RetoTiendaBackendStack extends cdk.Stack {
         },
       ],
     });
+
+      // Permisos minimos del rol de replicacion:
+    //  - Leer objetos y versiones del bucket origen.
+    //  - Escribir replicas en el bucket destino.
+    //  - Leer y escribir tags de versiones.
+    replicationRole.addToPolicy(
+      new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        actions: [
+          's3:GetObjectVersionForReplication',
+          's3:GetObjectVersionAcl',
+          's3:GetObjectVersionTagging',
+        ],
+        resources: [`${imagesBucket.bucketArn}/*`],
+      }),
+    );
+
+    replicationRole.addToPolicy(
+      new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        actions: [
+          's3:ReplicateObject',
+          's3:ReplicateDelete',
+          's3:ReplicateTags',
+        ],
+        resources: [`${replicaBucket.bucketArn}/*`],
+      }),
+    );
 
         // ---------------------------------------------------------------------
     // Tabla DynamoDB para ordenes de compra
