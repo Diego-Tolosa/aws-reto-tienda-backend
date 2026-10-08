@@ -3,6 +3,7 @@ import { Construct } from 'constructs';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
+import * as rds from 'aws-cdk-lib/aws-rds';
 // import * as sqs from 'aws-cdk-lib/aws-sqs';
 
 export class RetoTiendaBackendStack extends cdk.Stack {
@@ -117,6 +118,65 @@ export class RetoTiendaBackendStack extends cdk.Stack {
         type: dynamodb.AttributeType.STRING,
       },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
+        // ---------------------------------------------------------------------
+    // RDS PostgreSQL para el catalogo de productos
+    // ---------------------------------------------------------------------
+    // RDS elegido sobre DynamoDB porque el catalogo tiene RELACIONES:
+    // products -> categories (muchos a uno)
+    // products <-> inventory (uno a uno)
+    // SQL maneja estas relaciones con JOINs, FOREIGN KEYs y transacciones.
+    // DynamoDB no esta disenado para este patron y lo forzaria a duplicar datos.
+    //
+    // Ubicado en subnets PRIVATE_ISOLATED: sin IP publica, sin ruta a internet.
+    // Solo la EC2 de procesamiento puede hablarle (via rds-sg).
+    const database = new rds.DatabaseInstance(this, 'CatalogDatabase', {
+      // PostgreSQL: open source, sin licencias, robusto para datos relacionales.
+      engine: rds.DatabaseInstanceEngine.postgres({
+        version: rds.PostgresEngineVersion.VER_16_3,
+      }),
+
+      // Instancia mas barata que cumple el reto.
+      instanceType: ec2.InstanceType.of(
+        ec2.InstanceClass.T3,
+        ec2.InstanceSize.MICRO,
+      ),
+
+      // Subnets privadas aisladas: sin acceso desde internet.
+      vpc,
+      vpcSubnets: {
+        subnetType: ec2.SubnetType.PRIVATE_ISOLATED,
+      },
+
+      // Doble garantia: RDS explicitamente no publico.
+      publiclyAccessible: false,
+
+      // Solo acepta trafico desde la EC2 de procesamiento (rds-sg).
+      securityGroups: [rdsSg],
+
+      // Contrasena generada aleatoriamente y guardada en Secrets Manager.
+      // No hardcodeada, no versionada en Git.
+      credentials: rds.Credentials.fromGeneratedSecret('postgres'),
+
+      // Nombre de la base de datos inicial.
+      databaseName: 'catalog',
+
+      // Storage: gp3 de 20 GB (minimo para gp3).
+      allocatedStorage: 20,
+      storageType: rds.StorageType.GP3,
+       // Cifrado en reposo con la key gestionada por RDS.
+      // Sin costo extra y elimina el warning de seguridad de AWS.
+      storageEncrypted: true,
+
+      // Sin backups automaticos para laboratorio (ahorra costo).
+      backupRetention: cdk.Duration.days(0),
+
+      // Si algun dia se habilitan backups, se borran al destruir.
+      deleteAutomatedBackups: true,
+
+      // Cleanup limpio.
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
   }
