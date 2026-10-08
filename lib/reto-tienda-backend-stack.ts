@@ -175,8 +175,11 @@ export class RetoTiendaBackendStack extends cdk.Stack {
       // Sin costo extra y elimina el warning de seguridad de AWS.
       storageEncrypted: true,
 
-      // Sin backups automaticos para laboratorio (ahorra costo).
-      backupRetention: cdk.Duration.days(0),
+      // Backups automaticos de 1 dia: requisito para poder crear
+      // Read Replicas. Costo extra despreciable.
+      // Boss Fight: la Read Replica exige backups automaticos en la primaria.
+      // 1 dia es el minimo. Costo extra minimo (~$0.10/mes por 20 GB).
+      backupRetention: cdk.Duration.days(1),
 
       // Si algun dia se habilitan backups, se borran al destruir.
       deleteAutomatedBackups: true,
