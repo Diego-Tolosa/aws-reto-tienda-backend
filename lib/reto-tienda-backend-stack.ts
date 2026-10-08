@@ -2,6 +2,7 @@ import * as cdk from 'aws-cdk-lib/core';
 import { Construct } from 'constructs';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 // import * as sqs from 'aws-cdk-lib/aws-sqs';
 
 export class RetoTiendaBackendStack extends cdk.Stack {
@@ -93,6 +94,30 @@ export class RetoTiendaBackendStack extends cdk.Stack {
       // Cleanup limpio con cdk destroy.
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       autoDeleteObjects: true,
+    });
+
+        // ---------------------------------------------------------------------
+    // Tabla DynamoDB para ordenes de compra
+    // ---------------------------------------------------------------------
+    // NoSQL para escrituras de alta frecuencia con esquema flexible.
+    // Elegido sobre RDS porque las ordenes no tienen relaciones complejas:
+    // son eventos inmutables que se escriben una vez y se leen por cliente
+    // u orden. DynamoDB escala horizontalmente sin gestion de capacidad.
+    //
+    // PK customerId + SK orderId: patron tipico de acceso.
+    // - Query por customerId -> todas las ordenes de un cliente.
+    // - Get por (customerId, orderId) -> una orden especifica.
+    const ordersTable = new dynamodb.Table(this, 'OrdersTable', {
+      partitionKey: {
+        name: 'customerId',
+        type: dynamodb.AttributeType.STRING,
+      },
+      sortKey: {
+        name: 'orderId',
+        type: dynamodb.AttributeType.STRING,
+      },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
   }
 }
